@@ -8,8 +8,8 @@ server/node_modules/
 server/.env
 client/.env
 
-# Build output
-client/build/
+# Build output — uncomment if you want to deploy build via git
+# client/build/
 
 # Logs
 *.log
