@@ -1,0 +1,1485 @@
+================================================================================
+   SURAKSHITA — COMPLETE INTERVIEW QUESTION BANK
+   Role: As a Senior Software Engineer & Full-Time Technical Recruiter
+   Project: Women's Safety Web Application (Full-Stack PWA)
+   Coverage: Fresher → Junior → Mid → Senior → Lead → Architect Level
+================================================================================
+
+DIFFICULTY LEGEND:
+  [L1] Fresher / Absolute Beginner
+  [L2] Junior Developer (0-1 year)
+  [L3] Mid-Level Developer (1-3 years)
+  [L4] Senior Developer (3-6 years)
+  [L5] Lead / Architect (6+ years)
+
+================================================================================
+SECTION A: PROJECT OVERVIEW & MOTIVATION
+================================================================================
+
+Q1. [L1] What is Surakshita and what problem does it solve?
+-----------------------------------------------------------
+ANSWER:
+Surakshita (meaning "protected" in Sanskrit) is a women's safety web
+application. It solves the problem of delayed emergency response — when a
+woman feels unsafe, she needs to alert trusted contacts instantly with her
+live location. Traditional methods (calling, texting) are slow and require
+conscious effort. Surakshita provides a one-tap SOS button, shake detection,
+and voice activation so help can be summoned even when the user cannot
+safely use their phone normally.
+
+Q2. [L1] What technologies did you use to build this project?
+------------------------------------------------------------
+ANSWER:
+Frontend: React.js (UI library), React Router (navigation), Axios (HTTP),
+  Socket.IO client (real-time), React-Leaflet (maps), EmailJS (browser email)
+Backend: Node.js (runtime), Express.js (web framework), Socket.IO (WebSocket)
+Database: MongoDB with Mongoose ODM
+Authentication: JWT (JSON Web Tokens), bcryptjs (password hashing),
+  Speakeasy (2FA/TOTP), Nodemailer (email OTP)
+Alerts: EmailJS (browser-side), Nodemailer (server-side), Twilio (SMS)
+Deployment: GitHub, PWA (Progressive Web App)
+
+Q3. [L1] What does PWA stand for and why did you make this a PWA?
+----------------------------------------------------------------
+ANSWER:
+PWA stands for Progressive Web App. It's a web application that behaves
+like a native mobile app. We made Surakshita a PWA because:
+1. Installable: Users can add it to their home screen without an app store
+2. Offline support: Works even without internet (critical for a safety app)
+3. Fast loading: Static assets are cached by the service worker
+4. No download barrier: Users access it via a URL — no installation friction
+5. Cross-platform: Works on Android, iOS, Windows, Mac from one codebase
+This is especially important for a safety app — the fewer steps to access
+it in an emergency, the better.
+
+Q4. [L2] Why did you choose React over other frameworks like Vue or Angular?
+---------------------------------------------------------------------------
+ANSWER:
+React was chosen because:
+1. Component reusability: SOSButton, LiveMap, Toast are reusable components
+2. Context API: Built-in state management sufficient for this app's complexity
+3. Hooks: useShakeDetection, useVoiceActivation as custom hooks are clean
+4. Large ecosystem: React-Leaflet, Socket.IO client, EmailJS all have React
+   support
+5. Industry standard: Most widely used frontend library — easier to find
+   developers and resources
+Vue would have been equally valid. Angular was overkill for this project size.
+
+
+================================================================================
+SECTION B: REACT & FRONTEND FUNDAMENTALS
+================================================================================
+
+Q5. [L1] What is JSX?
+--------------------
+ANSWER:
+JSX (JavaScript XML) is a syntax extension for JavaScript that looks like
+HTML but is actually JavaScript. In this project, every component returns
+JSX. For example in SOSButton.js:
+  return <button className="sos-btn idle" onPointerDown={startCountdown}>
+           <span className="sos-label">SOS</span>
+         </button>
+Babel compiles this to React.createElement() calls. JSX is not required
+but makes UI code far more readable than nested createElement() calls.
+
+Q6. [L1] What is the difference between props and state in React?
+----------------------------------------------------------------
+ANSWER:
+Props: Data passed FROM a parent TO a child component. Read-only in the child.
+  Example: <SOSButton onGuestTap={() => setLoginPrompt(...)} />
+  onGuestTap is a prop — SOSButton receives it but cannot modify it.
+
+State: Data managed WITHIN a component. Can be changed with setState/useState.
+  Example in SOSButton.js:
+    const [countdown, setCountdown] = useState(null);
+  countdown is state — it changes from null → 3 → 2 → 1 → null.
+
+Rule of thumb: If data comes from outside, it's a prop. If the component
+owns and changes it, it's state.
+
+Q7. [L1] What is the useEffect hook and where did you use it?
+------------------------------------------------------------
+ANSWER:
+useEffect runs side effects after a component renders. It replaces
+componentDidMount, componentDidUpdate, componentWillUnmount from class
+components. Uses in this project:
+1. AuthContext.js: On mount, checks localStorage for saved session
+2. SOSContext.js: Connects Socket.IO when user logs in
+3. Dashboard.js: Fetches contacts, active journey, SOS history on load
+4. useShakeDetection.js: Adds/removes devicemotion event listener
+Cleanup function (return () => ...) prevents memory leaks — e.g., removing
+event listeners when the component unmounts.
+
+Q8. [L2] What is the Context API and why did you use it instead of Redux?
+------------------------------------------------------------------------
+ANSWER:
+Context API provides a way to share values between components without
+passing props through every level (prop drilling). We use two contexts:
+1. AuthContext: user, login(), logout(), loginAnonymous() — needed by
+   Layout, Dashboard, all pages, LoginPrompt
+2. SOSContext: sosActive, triggerSOS(), currentLocation — needed by
+   SOSButton, Dashboard, Journey, all hooks
+
+Why not Redux:
+- Redux adds boilerplate (actions, reducers, store, connect)
+- Our state is not deeply nested or complex enough to justify it
+- Context + useReducer would be the next step if state grew complex
+- Redux DevTools and time-travel debugging aren't needed here
+
+Q9. [L2] Explain the component lifecycle in functional React components.
+-----------------------------------------------------------------------
+ANSWER:
+Functional components with hooks have three lifecycle phases:
+1. MOUNT (component appears): useEffect with [] runs once
+   Example: AuthContext fetches /auth/me once on app load
+2. UPDATE (state/props change): useEffect with [dependency] runs on change
+   Example: App.js sets dark mode when user.darkMode changes
+3. UNMOUNT (component removed): useEffect cleanup function runs
+   Example: useShakeDetection removes event listener on unmount
+
+In class components this was componentDidMount, componentDidUpdate,
+componentWillUnmount. Hooks unify all three into useEffect.
+
+Q10. [L2] What is React Router and how did you implement routing?
+----------------------------------------------------------------
+ANSWER:
+React Router v6 handles client-side navigation — changing the URL without
+a full page reload. In App.js:
+  <Routes>
+    <Route path="/login" element={<Login />} />
+    <Route path="/register" element={<Register />} />
+    <Route path="/" element={<Layout />}>
+      <Route index element={<Dashboard />} />
+      <Route path="contacts" element={<Contacts />} />
+      <Route path="journey" element={<Journey />} />
+    </Route>
+  </Routes>
+Nested routes: Layout is the parent — it renders the header/sidebar.
+<Outlet /> in Layout renders the matched child route (Dashboard, Contacts, etc.)
+useNavigate() is used for programmatic navigation (e.g., after login).
+NavLink applies 'active' class to the current route's nav link.
+
+Q11. [L2] What is the difference between controlled and uncontrolled components?
+-------------------------------------------------------------------------------
+ANSWER:
+Controlled: Form input value is controlled by React state.
+  In Login.js: <input value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} />
+  React is the single source of truth. Every keystroke updates state.
+
+Uncontrolled: Input manages its own state via the DOM (using ref).
+  We don't use uncontrolled components in this project.
+
+We use controlled components throughout because:
+1. Easy validation (check state before submit)
+2. Easy pre-filling (demo credentials button fills form.email/password)
+3. Consistent with React's data-down, events-up philosophy
+
+Q12. [L3] How does the LoginPrompt bottom sheet work technically?
+----------------------------------------------------------------
+ANSWER:
+LoginPrompt.js is a modal component that slides up from the bottom.
+Technically:
+1. It renders a full-screen overlay div with position:fixed and rgba background
+2. Inside is the sheet div with CSS animation: translateY(100%) → translateY(0)
+3. Clicking the overlay calls onClose() — dismisses without action
+4. It has three internal modes (choice/login/register) managed by local state
+5. On successful login: calls login() from AuthContext, then onSuccess()
+   callback (which the parent uses to proceed with the blocked action)
+6. Guest option: calls loginAnonymous() from AuthContext — no API call needed
+
+The parent component (Dashboard, Contacts, etc.) controls visibility:
+  const [loginPrompt, setLoginPrompt] = useState(null); // null = hidden
+  {loginPrompt && <LoginPrompt featureLabel={loginPrompt} onClose={...} />}
+
+
+================================================================================
+SECTION C: JAVASCRIPT & ES6+
+================================================================================
+
+Q13. [L1] What is async/await and where did you use it?
+------------------------------------------------------
+ANSWER:
+async/await is syntactic sugar over Promises that makes asynchronous code
+look synchronous. Every API call in this project uses it:
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await api.post('/auth/login', form);
+      login(res.data.token, res.data.user);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Login failed');
+    }
+  }
+Without async/await, this would be .then().catch() chains which are harder
+to read and debug. The try/catch block handles both network errors and
+server-returned errors.
+
+Q14. [L1] What is the spread operator and optional chaining? Give examples from the project.
+-------------------------------------------------------------------------------------------
+ANSWER:
+Spread operator (...): Copies properties from one object to another.
+  setForm({ ...form, email: e.target.value })
+  This creates a new object with all existing form fields, overriding email.
+  Used everywhere form state is updated.
+
+Optional chaining (?.): Safely accesses nested properties without throwing
+if an intermediate value is null/undefined.
+  user?.name?.split(' ')[0]  // Won't crash if user or name is null
+  err.response?.data?.error  // Won't crash if response or data is undefined
+  Used extensively in error handling and user data display.
+
+Q15. [L2] What is a closure and how does it appear in this project?
+------------------------------------------------------------------
+ANSWER:
+A closure is a function that remembers variables from its outer scope even
+after the outer function has returned. In useShakeDetection.js:
+  const handleMotion = useCallback((event) => {
+    // lastAccel and lastShake are from the outer scope
+    const delta = Math.abs(x - lastAccel.current.x) + ...
+    if (delta > threshold && now - lastShake.current > COOLDOWN) {
+      onShake?.(); // onShake is from the outer scope (prop)
+    }
+  }, [threshold, onShake, enabled]);
+handleMotion closes over lastAccel, lastShake, threshold, onShake, COOLDOWN.
+Even when handleMotion is called by the browser's event system, it still
+has access to these variables from the hook's scope.
+
+Q16. [L2] Explain Promise.all() and where you used it.
+-----------------------------------------------------
+ANSWER:
+Promise.all() takes an array of promises and resolves when ALL of them
+resolve, or rejects when ANY one rejects. In sosController.js:
+  Promise.all(contacts.map(async (contact) => {
+    if (contact.notifyBySMS) await sendSMS(contact.phone, msg);
+    if (contact.notifyByEmail) await sendEmail({ to: contact.email, ... });
+  })).then(async () => {
+    sosEvent.alertsSent = alertsSent;
+    await sosEvent.save();
+  });
+This sends alerts to ALL contacts simultaneously (not one by one).
+If you have 5 contacts, all 5 SMS/emails fire at the same time.
+The .then() runs after ALL alerts are attempted, then saves the results.
+Note: This runs without await — it's fire-and-forget so the HTTP response
+returns immediately without waiting for all emails to send.
+
+Q17. [L3] What is the difference between == and === in JavaScript?
+-----------------------------------------------------------------
+ANSWER:
+== (loose equality): Performs type coercion before comparing.
+  '5' == 5  → true (string coerced to number)
+  null == undefined → true
+
+=== (strict equality): No type coercion. Type AND value must match.
+  '5' === 5 → false
+  null === undefined → false
+
+In this project we exclusively use === (strict equality) throughout.
+Example in demoStore.js:
+  const isDemo = (userId) => String(userId) === DEMO_USER_ID;
+We convert to String first because userId might be an ObjectId object,
+then strictly compare to the string 'demo_user_001'.
+
+
+================================================================================
+SECTION D: NODE.JS & EXPRESS BACKEND
+================================================================================
+
+Q18. [L1] What is Node.js and why is it used for the backend?
+------------------------------------------------------------
+ANSWER:
+Node.js is a JavaScript runtime built on Chrome's V8 engine that allows
+JavaScript to run on the server. We use it because:
+1. Same language: JavaScript on both frontend and backend — one language
+   to learn, shared utility functions possible
+2. Non-blocking I/O: Node's event loop handles many concurrent connections
+   efficiently — perfect for real-time apps with Socket.IO
+3. npm ecosystem: Access to thousands of packages (express, mongoose, etc.)
+4. JSON native: MongoDB returns JSON, Express handles JSON, React consumes
+   JSON — no serialization/deserialization overhead
+
+Q19. [L1] What is Express.js and what does it do?
+------------------------------------------------
+ANSWER:
+Express is a minimal web framework for Node.js. It handles:
+1. Routing: Maps HTTP methods + paths to handler functions
+   app.post('/api/auth/login', authLimiter, ctrl.login)
+2. Middleware: Functions that run before route handlers
+   app.use(helmet()) — security headers
+   app.use(cors()) — cross-origin requests
+   app.use(express.json()) — parse JSON request bodies
+3. Error handling: Centralized error responses
+Without Express, you'd use Node's raw http module which requires manual
+URL parsing, method checking, and body parsing.
+
+Q20. [L2] What is middleware in Express? List all middleware used in this project.
+---------------------------------------------------------------------------------
+ANSWER:
+Middleware is a function with (req, res, next) signature that runs in the
+request-response pipeline. It can modify req/res or end the cycle.
+
+Middleware in this project:
+1. helmet() — sets 11 security HTTP headers
+2. cors() — allows requests from CLIENT_URL only
+3. express.json() — parses JSON request bodies into req.body
+4. rateLimit (global) — 100 requests/15min per IP
+5. rateLimit (auth) — 20 requests/15min per IP on /api/auth
+6. protect() (custom) — verifies JWT, populates req.user
+   Used on all protected routes (contacts, SOS, journey, incidents)
+
+Execution order matters: helmet → cors → json → rateLimit → routes → protect
+
+Q21. [L2] What is the difference between app.use() and app.get()/app.post()?
+----------------------------------------------------------------------------
+ANSWER:
+app.use(): Applies middleware to ALL HTTP methods and optionally a path prefix.
+  app.use(helmet()) — runs for every request
+  app.use('/api/contacts', contactRoutes) — runs for any method on /api/contacts
+
+app.get() / app.post() / app.put() / app.delete(): Matches specific HTTP method.
+  app.get('/api/health', handler) — only GET requests to /api/health
+  router.post('/trigger', protect, ctrl.triggerSOS) — only POST to /trigger
+
+In REST conventions: GET=read, POST=create, PUT=update, DELETE=delete.
+We follow this throughout the project.
+
+Q22. [L3] Explain the MVC pattern and how this project implements it.
+--------------------------------------------------------------------
+ANSWER:
+MVC (Model-View-Controller) separates concerns:
+- Model: Data structure and database logic
+- View: What the user sees (UI)
+- Controller: Business logic connecting model and view
+
+In this project:
+- Models: server/src/models/ (User.js, Contact.js, SOSEvent.js, etc.)
+  Define MongoDB schemas, validation, instance methods
+- Views: client/src/ (React components — the entire frontend)
+- Controllers: server/src/controllers/ (authController.js, sosController.js, etc.)
+  Receive HTTP requests, call models, return responses
+
+Routes (server/src/routes/) act as the URL dispatcher — they map HTTP
+endpoints to controller functions. This is sometimes called MVC-R (with Router).
+
+Q23. [L3] How does error handling work in this project?
+------------------------------------------------------
+ANSWER:
+Three layers of error handling:
+
+1. Controller level (try/catch):
+   Every controller wraps logic in try/catch:
+     } catch (err) {
+       res.status(500).json({ error: err.message });
+     }
+   This prevents unhandled promise rejections from crashing the server.
+
+2. Axios interceptor (client):
+   In api.js, the response interceptor catches 401 errors globally:
+     if (err.response?.status === 401) {
+       localStorage.removeItem('token');
+       window.location.href = '/login';
+     }
+   This handles expired tokens without each component needing to check.
+
+3. UI error state:
+   Each form component has local error state:
+     const [error, setError] = useState('');
+   On catch: setError(err.response?.data?.error || 'Default message')
+   Displayed as red text below the form.
+
+Missing: A global Express error handler middleware (app.use((err,req,res,next)=>{}))
+would be an improvement for production.
+
+Q24. [L4] How does Socket.IO work and what is the room concept?
+--------------------------------------------------------------
+ANSWER:
+Socket.IO provides bidirectional, event-based communication over WebSocket
+(with HTTP long-polling as fallback). 
+
+Connection flow:
+1. Client: const socket = io('http://localhost:5000', { transports: ['websocket'] })
+2. Server: io.on('connection', (socket) => { ... })
+3. Client emits: socket.emit('join-room', userId)
+4. Server: socket.join(userId) — adds this socket to a named room
+
+Rooms are namespaces for broadcasting:
+- io.to(userId).emit('sos-active', data) — sends to ALL sockets in that room
+- socket.to(userId).emit(...) — sends to all EXCEPT the sender
+
+Why rooms? Each user has their own room named after their userId. When SOS
+is triggered, only sockets in THAT user's room receive the event. This
+prevents user A's location from being broadcast to user B's contacts.
+
+In this project, rooms are used for:
+- 'sos-active': notify contacts when SOS starts
+- 'sos-cancelled': notify contacts when SOS ends
+- 'location-update': stream live location during SOS
+
+
+================================================================================
+SECTION E: AUTHENTICATION & SECURITY
+================================================================================
+
+Q25. [L1] What is authentication vs authorization?
+-------------------------------------------------
+ANSWER:
+Authentication: Verifying WHO you are. (Login — proving identity)
+  In this project: email + password → JWT token issued
+Authorization: Verifying WHAT you can do. (Access control)
+  In this project: protect() middleware checks JWT before allowing access
+  to contacts, SOS, journey endpoints. You can only access YOUR contacts,
+  not another user's.
+
+Q26. [L2] What is JWT and how does it work?
+------------------------------------------
+ANSWER:
+JWT (JSON Web Token) is a compact, self-contained token for authentication.
+Structure: header.payload.signature (three Base64-encoded parts)
+  Header: { "alg": "HS256", "typ": "JWT" }
+  Payload: { "id": "demo_user_001", "iat": 1234567890, "exp": 1235172690 }
+  Signature: HMACSHA256(base64(header) + "." + base64(payload), JWT_SECRET)
+
+How it works in this project:
+1. Login: server creates token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' })
+2. Client stores token in localStorage
+3. Every request: Authorization: Bearer <token> header
+4. Server: jwt.verify(token, JWT_SECRET) — validates signature and expiry
+5. If valid: decoded.id extracted → user fetched from DB
+
+Stateless: Server doesn't store sessions. Any server instance can verify
+any token as long as it has JWT_SECRET.
+
+Q27. [L2] Why is bcrypt used for password hashing? Why not MD5 or SHA256?
+------------------------------------------------------------------------
+ANSWER:
+MD5 and SHA256 are fast hashing algorithms — they can compute billions of
+hashes per second on modern hardware. This makes brute-force attacks trivial.
+
+bcrypt is intentionally slow:
+- Cost factor 12 means 2^12 = 4096 iterations
+- Takes ~100ms per hash on modern hardware
+- An attacker trying 1 billion passwords would take 100 million seconds
+
+bcrypt also:
+- Automatically generates a random salt (prevents rainbow table attacks)
+- Embeds the salt in the hash output (no separate salt storage needed)
+- Is timing-safe in comparison (bcrypt.compare takes same time regardless
+  of where the comparison fails — prevents timing attacks)
+
+In User.js pre-save hook:
+  this.password = await bcrypt.hash(this.password, 12);
+  // 12 = cost factor (not number of iterations directly, but 2^12)
+
+Q28. [L3] How does OTP-based email verification work?
+----------------------------------------------------
+ANSWER:
+Flow in authController.js:
+1. Register: generateOTP() creates a 6-digit random number
+   Math.floor(100000 + Math.random() * 900000).toString()
+2. OTP stored in user.otp (hashed? No — stored plain, short-lived)
+3. otpExpiry = now + 10 minutes
+4. sendOTPEmail() sends OTP to user's email via Nodemailer
+5. User submits OTP → verifyOTP() checks:
+   - user.otp === submitted OTP
+   - new Date() < user.otpExpiry (not expired)
+6. If valid: user.isVerified = true, otp and otpExpiry cleared
+7. JWT issued — user is now logged in
+
+Dev fallback: If email is not configured, user is auto-verified and JWT
+is returned immediately (autoVerified: true in response).
+
+Q29. [L3] How does Two-Factor Authentication (2FA) work?
+-------------------------------------------------------
+ANSWER:
+We use TOTP (Time-based One-Time Password) — the same standard used by
+Google Authenticator, Authy, etc.
+
+Setup flow:
+1. POST /api/auth/2fa/setup
+2. speakeasy.generateSecret() creates a base32 secret
+3. Secret stored in user.twoFactorSecret
+4. QR code generated from otpauth:// URL using qrcode library
+5. User scans QR with authenticator app
+
+Login flow with 2FA enabled:
+1. POST /api/auth/login → returns { requires2FA: true, userId }
+2. User opens authenticator app → gets 6-digit code (changes every 30s)
+3. POST /api/auth/2fa/verify with { userId, token }
+4. speakeasy.totp.verify({ secret, token, window: 1 })
+   window: 1 allows ±30 seconds of clock drift
+5. If valid → JWT issued
+
+TOTP algorithm: HMAC-SHA1(secret, floor(currentTime / 30))
+The 30-second window means the code changes every 30 seconds.
+
+Q30. [L4] What security headers does helmet() set and why do they matter?
+------------------------------------------------------------------------
+ANSWER:
+helmet() sets these headers automatically:
+1. Content-Security-Policy: Prevents XSS by whitelisting script sources
+2. X-Frame-Options: DENY — prevents clickjacking (embedding in iframes)
+3. X-Content-Type-Options: nosniff — prevents MIME type sniffing
+4. Strict-Transport-Security: Forces HTTPS (in production)
+5. X-XSS-Protection: Enables browser's built-in XSS filter
+6. Referrer-Policy: Controls what's sent in Referer header
+7. X-DNS-Prefetch-Control: Prevents DNS prefetching leaks
+8. X-Download-Options: Prevents IE from executing downloads in site context
+9. X-Permitted-Cross-Domain-Policies: Restricts Adobe Flash/PDF access
+10. Expect-CT: Certificate Transparency enforcement
+11. Cross-Origin-Embedder-Policy: Isolates browsing context
+
+Without helmet, a browser making a request to our API would receive no
+security headers — leaving users vulnerable to XSS, clickjacking, and
+MIME sniffing attacks.
+
+Q31. [L4] What is CORS and how is it configured here?
+----------------------------------------------------
+ANSWER:
+CORS (Cross-Origin Resource Sharing) is a browser security mechanism that
+blocks web pages from making requests to a different domain than the one
+that served the page. Without CORS headers, the browser blocks the request.
+
+Configuration in server/src/index.js:
+  app.use(cors({
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    credentials: true,
+  }));
+
+This tells the browser: "Only allow requests from localhost:3000"
+In production, CLIENT_URL would be set to the actual domain.
+
+credentials: true is needed if we were using cookies (we use Authorization
+header instead, so it's set for future compatibility).
+
+The Socket.IO server has its own CORS config:
+  new Server(server, { cors: { origin: CLIENT_URL, methods: ['GET','POST'] } })
+
+
+================================================================================
+SECTION F: DATABASE & MONGODB
+================================================================================
+
+Q32. [L1] What is MongoDB and how is it different from SQL databases?
+--------------------------------------------------------------------
+ANSWER:
+MongoDB is a NoSQL document database. Data is stored as JSON-like documents
+(BSON) in collections, not rows in tables.
+
+Key differences:
+SQL (MySQL/PostgreSQL):
+- Tables with fixed columns (schema)
+- Relationships via foreign keys and JOINs
+- ACID transactions by default
+- Better for complex relational queries
+
+MongoDB:
+- Collections of flexible JSON documents
+- Relationships via embedding or references
+- Horizontal scaling (sharding) built-in
+- Better for hierarchical/nested data
+
+In this project, SOSEvent has a locationHistory array — in SQL this would
+require a separate table with a JOIN. In MongoDB it's just an array field
+in the same document. This is why MongoDB fits naturally here.
+
+Q33. [L2] What is Mongoose and what does it add over the MongoDB driver?
+-----------------------------------------------------------------------
+ANSWER:
+Mongoose is an ODM (Object Document Mapper) — it adds a schema layer on
+top of MongoDB's raw driver. Benefits:
+1. Schema validation: Define field types, required fields, defaults
+   name: { type: String, required: true, trim: true }
+2. Instance methods: user.comparePassword(), user.toSafeObject()
+3. Middleware (hooks): pre('save') for password hashing
+4. Query helpers: Contact.find({ userId }) returns Mongoose documents
+5. Population: .populate('userId') replaces an ID with the full document
+6. Type casting: Automatically converts strings to Numbers, Dates, etc.
+
+Without Mongoose, you'd write raw MongoDB queries and manually validate
+all input — much more error-prone.
+
+Q34. [L2] What is a Mongoose schema and model?
+---------------------------------------------
+ANSWER:
+Schema: Defines the structure of documents in a collection.
+  const contactSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.Mixed, required: true },
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, required: true },
+    notifyBySMS: { type: Boolean, default: true },
+  }, { timestamps: true });
+
+Model: A class compiled from the schema. Used to create, read, update, delete.
+  const Contact = mongoose.model('Contact', contactSchema);
+  // Creates 'contacts' collection in MongoDB (lowercase, plural)
+
+  await Contact.create({ userId, name, phone }); // INSERT
+  await Contact.find({ userId }); // SELECT WHERE userId=...
+  await Contact.findOneAndUpdate({ _id, userId }, data, { new: true }); // UPDATE
+  await Contact.findOneAndDelete({ _id, userId }); // DELETE
+
+Q35. [L3] Why is userId defined as Mixed type instead of ObjectId?
+-----------------------------------------------------------------
+ANSWER:
+Normally userId would be mongoose.Schema.Types.ObjectId — a 12-byte BSON
+type that MongoDB uses as the default _id. However, the demo user has
+_id = 'demo_user_001' — a plain JavaScript string.
+
+When Mongoose tries to cast 'demo_user_001' to ObjectId, it throws:
+  CastError: Cast to ObjectId failed for value "demo_user_001"
+  (This is the BSON error you encountered)
+
+Solution: Schema.Types.Mixed accepts any JavaScript value — string, number,
+ObjectId, object. This allows the same schema to work for both:
+- Real users: userId = ObjectId('507f1f77bcf86cd799439011')
+- Demo user: userId = 'demo_user_001'
+
+Trade-off: We lose the ability to use .populate('userId') for demo data,
+but since demo data never hits MongoDB, this is acceptable.
+
+Q36. [L3] What is the pre-save hook in the User model and why is it important?
+-----------------------------------------------------------------------------
+ANSWER:
+In User.js:
+  userSchema.pre('save', async function(next) {
+    if (!this.isModified('password') || !this.password) return next();
+    this.password = await bcrypt.hash(this.password, 12);
+    next();
+  });
+
+This runs BEFORE every user.save() call. It:
+1. Checks if password was actually modified (isModified) — prevents
+   re-hashing an already-hashed password when updating other fields
+2. Hashes the plain text password with bcrypt cost factor 12
+3. Replaces this.password with the hash
+4. Calls next() to continue the save operation
+
+Without this hook, you'd have to remember to hash the password in every
+controller that creates or updates users — easy to forget and a security risk.
+
+Q37. [L4] How would you add database indexes to improve query performance?
+-------------------------------------------------------------------------
+ANSWER:
+Currently the models have no explicit indexes (MongoDB auto-creates one on _id).
+For production with many users, these indexes would significantly improve performance:
+
+  // Contact.js — most common query is find by userId
+  contactSchema.index({ userId: 1 });
+
+  // SOSEvent.js — find active SOS by userId
+  sosEventSchema.index({ userId: 1, status: 1 });
+
+  // Journey.js — find active journey by userId
+  journeySchema.index({ userId: 1, status: 1 });
+  // For overdue checker
+  journeySchema.index({ status: 1, expectedArrival: 1, alertSent: 1 });
+
+  // User.js — login query
+  userSchema.index({ email: 1 }, { unique: true });
+
+Without indexes, MongoDB does a full collection scan (O(n)) for every query.
+With indexes, queries are O(log n). For a collection with 1 million users,
+this is the difference between 1ms and 1000ms response time.
+
+
+================================================================================
+SECTION G: BROWSER APIs & MOBILE WEB
+================================================================================
+
+Q38. [L2] What is the Geolocation API and how did you use it?
+------------------------------------------------------------
+ANSWER:
+The Geolocation API (navigator.geolocation) provides access to the device's
+GPS/location services. Two methods used:
+
+1. getCurrentPosition() — one-time location fetch:
+   navigator.geolocation.getCurrentPosition(
+     (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+     (err) => reject(err),
+     { enableHighAccuracy: true, timeout: 8000 }
+   )
+   Used when SOS is triggered and no location is cached yet.
+
+2. watchPosition() — continuous tracking:
+   watchIdRef.current = navigator.geolocation.watchPosition(
+     (pos) => setCurrentLocation({ lat, lng }),
+     (err) => setLocationError(err.message),
+     { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+   )
+   Used during active SOS to continuously update location.
+   Returns a watchId — cleared with clearWatch() when SOS ends.
+
+Limitations:
+- Requires HTTPS in production (HTTP only works on localhost)
+- User must grant permission — we handle denial with error state
+- Battery drain — we only watch position during active SOS, not always
+
+Q39. [L2] What is the DeviceMotion API and how does shake detection work?
+------------------------------------------------------------------------
+ANSWER:
+DeviceMotion API fires events with accelerometer data:
+  window.addEventListener('devicemotion', (event) => {
+    const { x, y, z } = event.accelerationIncludingGravity;
+  })
+
+accelerationIncludingGravity includes gravity (9.8 m/s² on Earth).
+We use this (not acceleration) because it's more widely supported.
+
+Shake algorithm in useShakeDetection.js:
+  delta = |x - prevX| + |y - prevY| + |z - prevZ|
+  if (delta > 25 && timeSinceLastShake > 3000ms) → trigger SOS
+
+When you shake a phone, all three axes change rapidly → large delta.
+Normal movement (walking, typing) produces small deltas.
+Threshold 25 is calibrated to detect intentional shakes, not normal use.
+
+iOS 13+ requires permission:
+  DeviceMotionEvent.requestPermission().then(perm => {
+    if (perm === 'granted') window.addEventListener('devicemotion', handler)
+  })
+
+Q40. [L3] What is the Web Speech API and how does voice activation work?
+-----------------------------------------------------------------------
+ANSWER:
+Web Speech API provides SpeechRecognition for speech-to-text conversion.
+In useVoiceActivation.js:
+  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)()
+  recognition.continuous = true; // Keep listening, don't stop after one phrase
+  recognition.interimResults = true; // Get partial results as user speaks
+  recognition.lang = 'en-US';
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[i][0].transcript.toLowerCase();
+    if (transcript.includes(keyword.toLowerCase())) onTrigger();
+  }
+
+  recognition.onend = () => {
+    if (activeRef.current) recognition.start(); // Auto-restart
+  }
+
+The keyword (default: "help me") is checked with .includes() — so "please
+help me" or "help me now" both trigger it.
+
+Browser support: Chrome and Edge only. Firefox and Safari don't support it.
+We check: window.SpeechRecognition || window.webkitSpeechRecognition
+If neither exists, the hook silently does nothing.
+
+Q41. [L3] What is IndexedDB and how is it used for offline SOS?
+--------------------------------------------------------------
+ANSWER:
+IndexedDB is a browser-based NoSQL database for storing structured data
+client-side. Unlike localStorage (strings only, ~5MB), IndexedDB stores
+objects and has no practical size limit.
+
+In SOSContext.js (offline fallback):
+  function openOfflineDB() {
+    const req = indexedDB.open('surakshita-offline', 1);
+    req.onupgradeneeded = (e) =>
+      e.target.result.createObjectStore('pending-sos', { keyPath: 'id', autoIncrement: true });
+    req.onsuccess = (e) => resolve(e.target.result);
+  }
+
+When SOS API call fails (no internet):
+1. Open IndexedDB 'surakshita-offline'
+2. Add { token, data: { lat, lng, triggeredBy } } to 'pending-sos' store
+3. Register Background Sync: sw.sync.register('sos-retry')
+
+In service-worker.js:
+  self.addEventListener('sync', (event) => {
+    if (event.tag === 'sos-retry') event.waitUntil(retrySOS());
+  })
+  // retrySOS() reads IndexedDB and retries the POST when online
+
+
+================================================================================
+SECTION H: SYSTEM DESIGN & SCALABILITY
+================================================================================
+
+Q42. [L3] How would you handle 10,000 simultaneous SOS events?
+-------------------------------------------------------------
+ANSWER:
+Current architecture (single Node.js server) would struggle. Improvements:
+
+1. Message Queue (RabbitMQ / AWS SQS):
+   Instead of sending emails synchronously in the controller, push SOS
+   events to a queue. Worker processes consume the queue and send alerts.
+   This decouples alert delivery from the HTTP response.
+
+2. Socket.IO Scaling (Redis Adapter):
+   Multiple Node instances can't share Socket.IO rooms by default.
+   socket.io-redis adapter uses Redis pub/sub to sync rooms across instances.
+
+3. Database Sharding:
+   MongoDB Atlas auto-shards by userId — each shard handles a subset of users.
+
+4. CDN for static assets:
+   React build served from CloudFront — reduces load on origin server.
+
+5. Rate limiting per user (not just per IP):
+   Current rate limiting is IP-based. Add user-based limits to prevent
+   a single account from flooding the system.
+
+6. Circuit Breaker:
+   If Twilio/email service is down, stop retrying immediately and queue
+   for later instead of hammering a failing service.
+
+Q43. [L4] What is the CAP theorem and how does it apply to this project?
+-----------------------------------------------------------------------
+ANSWER:
+CAP theorem states a distributed system can only guarantee 2 of 3:
+- Consistency: All nodes see the same data at the same time
+- Availability: Every request gets a response (not necessarily latest data)
+- Partition Tolerance: System works despite network partitions
+
+MongoDB chooses CP (Consistency + Partition Tolerance) by default with
+replica sets — if a partition occurs, MongoDB may become unavailable rather
+than serve stale data.
+
+For a safety app, Availability is critical — we'd rather serve slightly
+stale contact data than be unavailable when SOS is triggered. This is why:
+1. We have the demoStore fallback (works without DB entirely)
+2. SOS trigger doesn't wait for DB confirmation before responding
+3. EmailJS fires from the browser independently of the server
+
+In production, we'd configure MongoDB with readPreference: 'nearest' to
+read from the closest replica, accepting slight staleness for availability.
+
+Q44. [L4] How would you implement end-to-end encryption for location data?
+-------------------------------------------------------------------------
+ANSWER:
+Current state: Location data is transmitted over HTTPS (encrypted in transit)
+but stored in plain text in MongoDB (not encrypted at rest).
+
+For true E2E encryption:
+1. Key generation: On registration, generate ECDH key pair in browser
+   using Web Crypto API's SubtleCrypto.generateKey()
+2. Key storage: Private key stored in browser's secure storage (never sent
+   to server). Public key sent to server and stored in User model.
+3. Contact key exchange: When adding an emergency contact, fetch their
+   public key from the server.
+4. Encryption: Before sending location update:
+   const encrypted = await crypto.subtle.encrypt('AES-GCM', contactPublicKey, locationData)
+5. Server stores only encrypted blobs — cannot read location
+6. Contact's browser decrypts with their private key
+
+Trade-offs:
+- If user loses device, private key is lost — location history unrecoverable
+- Key rotation is complex
+- Adds ~50ms latency per location update
+For this project, HTTPS + MongoDB Atlas encryption at rest is sufficient.
+
+Q45. [L5] Design the database schema for a geo-fencing feature.
+--------------------------------------------------------------
+ANSWER:
+Geo-fencing alerts users when they enter/leave defined zones.
+
+New collection: SafeZone
+  {
+    _id: ObjectId,
+    userId: Mixed,
+    name: String, // "Home", "Office", "Unsafe Area"
+    type: String, // 'safe' | 'unsafe'
+    center: { lat: Number, lng: Number },
+    radius: Number, // meters
+    alertOnEnter: Boolean,
+    alertOnExit: Boolean,
+    active: Boolean,
+    createdAt: Date
+  }
+
+MongoDB supports geospatial queries natively:
+  // Create 2dsphere index
+  safeZoneSchema.index({ center: '2dsphere' });
+
+  // Query: find zones within X meters of current location
+  SafeZone.find({
+    center: {
+      $near: {
+        $geometry: { type: 'Point', coordinates: [lng, lat] },
+        $maxDistance: radius
+      }
+    },
+    userId: userId,
+    active: true
+  })
+
+Implementation:
+- Client sends location every 30 seconds (not just during SOS)
+- Server checks if location is inside any defined zones
+- If entering unsafe zone: trigger alert to contacts
+- If leaving safe zone after certain time: trigger alert
+
+
+================================================================================
+SECTION I: PERFORMANCE & OPTIMIZATION
+================================================================================
+
+Q46. [L2] What is lazy loading and did you use it?
+-------------------------------------------------
+ANSWER:
+Lazy loading defers loading of resources until they're needed, reducing
+initial bundle size and improving load time.
+
+In React, this is done with React.lazy() and Suspense:
+  const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+  <Suspense fallback={<Spinner />}><Dashboard /></Suspense>
+
+Currently this project does NOT use lazy loading — all pages are imported
+statically in App.js. This is a performance improvement opportunity.
+With lazy loading, the initial bundle would only include Login/Register.
+Dashboard, Contacts, Journey, etc. would load on first navigation.
+
+For a safety app, the trade-off is: lazy loading saves initial load time
+but adds a small delay when navigating to a page for the first time.
+The SOS button is on Dashboard — we'd want Dashboard to load eagerly.
+
+Q47. [L3] How does the service worker cache work?
+------------------------------------------------
+ANSWER:
+In public/service-worker.js, we implement two caching strategies:
+
+1. Cache-first for static assets (HTML, JS, CSS, images):
+   event.respondWith(
+     caches.match(request).then(cached => cached || fetch(request))
+   )
+   Checks cache first → if found, return immediately (fast).
+   If not cached, fetch from network and cache for next time.
+
+2. Network-first for API calls (/api/*):
+   event.respondWith(
+     fetch(request).catch(() => new Response(JSON.stringify({
+       error: 'You are offline'
+     }), { status: 503 }))
+   )
+   Always tries network first (fresh data).
+   If network fails, returns a 503 JSON response.
+
+Cache invalidation: On service worker activation, old caches are deleted:
+  caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+  )
+CACHE_NAME = 'surakshita-v1' — increment version to force cache refresh.
+
+Q48. [L3] What is memoization and where would you apply it in this project?
+--------------------------------------------------------------------------
+ANSWER:
+Memoization caches the result of expensive computations so they're not
+recalculated on every render.
+
+React provides:
+- useMemo(): Memoizes a computed value
+- useCallback(): Memoizes a function reference
+- React.memo(): Memoizes an entire component
+
+Already used in this project:
+  const triggerSOS = useCallback(async (triggeredBy) => { ... },
+    [currentLocation, startLocationWatch, user]);
+  // triggerSOS is only recreated when these dependencies change
+
+Where to add:
+  // LiveMap — re-renders on every parent render, but map doesn't change
+  export default React.memo(LiveMap);
+
+  // Contact list — expensive to re-render all cards
+  const ContactCard = React.memo(({ contact, onEdit, onDelete }) => { ... });
+
+  // Sorted/filtered contact list
+  const sortedContacts = useMemo(() =>
+    contacts.sort((a, b) => a.name.localeCompare(b.name)),
+    [contacts]
+  );
+
+================================================================================
+SECTION J: TESTING
+================================================================================
+
+Q49. [L2] What types of testing would you write for this project?
+----------------------------------------------------------------
+ANSWER:
+Three levels of testing:
+
+1. Unit Tests (Jest):
+   Test individual functions in isolation.
+   - authController.login() with valid/invalid credentials
+   - demoStore.contacts.create() returns correct structure
+   - buildSOSMessage() generates correct Google Maps URL
+   - isEmailConfigured() returns false for placeholder values
+
+2. Integration Tests (Jest + Supertest):
+   Test API endpoints with a real Express app (no real DB — use mongodb-memory-server).
+   - POST /api/auth/login with demo credentials → returns JWT
+   - POST /api/sos/trigger → returns sosId, contactsAlerted
+   - GET /api/contacts with valid JWT → returns contacts array
+
+3. End-to-End Tests (Cypress):
+   Test the full user flow in a real browser.
+   - User opens app → sees dashboard without login
+   - User clicks SOS → sees login prompt
+   - User fills demo credentials → logs in → SOS button is red
+   - User holds SOS button → countdown appears → SOS activates
+
+Q50. [L3] How would you test the shake detection feature?
+--------------------------------------------------------
+ANSWER:
+Shake detection uses DeviceMotion API which is hardware-dependent.
+Testing approaches:
+
+1. Unit test the algorithm (pure function):
+   Extract the delta calculation:
+     function calculateDelta(current, previous) {
+       return Math.abs(current.x - previous.x) +
+              Math.abs(current.y - previous.y) +
+              Math.abs(current.z - previous.z);
+     }
+   Test: calculateDelta({x:30,y:0,z:0}, {x:0,y:0,z:0}) === 30
+
+2. Mock DeviceMotionEvent in Jest:
+   const mockEvent = { accelerationIncludingGravity: { x: 30, y: 20, z: 15 } };
+   window.dispatchEvent(new Event('devicemotion', mockEvent));
+   expect(onShakeMock).toHaveBeenCalled();
+
+3. Cypress with device emulation:
+   Cypress can simulate mobile devices. DeviceMotion events can be
+   dispatched programmatically in the test.
+
+4. Manual testing on real device:
+   The most reliable — test on actual Android/iOS device.
+
+
+================================================================================
+SECTION K: DEPLOYMENT & DEVOPS
+================================================================================
+
+Q51. [L2] How would you deploy this application to production?
+-------------------------------------------------------------
+ANSWER:
+Full deployment stack:
+
+Backend (Node.js):
+  Option A: Railway.app or Render.com (free tier available)
+    - Connect GitHub repo → auto-deploy on push
+    - Set environment variables in dashboard
+    - Provides HTTPS automatically
+
+  Option B: AWS EC2 + PM2
+    - PM2 keeps Node process alive and restarts on crash
+    - Nginx as reverse proxy (handles SSL, serves static files)
+    - Let's Encrypt for free SSL certificate
+
+Frontend (React):
+  Option A: Vercel or Netlify (free, best for React)
+    - npm run build → upload build/ folder
+    - Set REACT_APP_API_URL to production backend URL
+    - Automatic HTTPS
+
+  Option B: Serve from Express
+    - app.use(express.static('client/build'))
+    - app.get('*', (req,res) => res.sendFile('client/build/index.html'))
+    - Single server serves both API and frontend
+
+Database: MongoDB Atlas (free M0 tier — 512MB)
+
+Q52. [L3] What is Docker and how would you containerize this project?
+--------------------------------------------------------------------
+ANSWER:
+Docker packages an application with all its dependencies into a container
+that runs consistently on any machine.
+
+Dockerfile for server:
+  FROM node:18-alpine
+  WORKDIR /app
+  COPY server/package*.json ./
+  RUN npm ci --only=production
+  COPY server/src ./src
+  EXPOSE 5000
+  CMD ["node", "src/index.js"]
+
+Dockerfile for client (build stage):
+  FROM node:18-alpine AS build
+  WORKDIR /app
+  COPY client/package*.json ./
+  RUN npm ci
+  COPY client/src ./src
+  COPY client/public ./public
+  RUN npm run build
+
+  FROM nginx:alpine
+  COPY --from=build /app/build /usr/share/nginx/html
+  EXPOSE 80
+
+docker-compose.yml:
+  services:
+    server:
+      build: ./server
+      ports: ["5000:5000"]
+      env_file: ./server/.env
+      depends_on: [mongodb]
+    client:
+      build: ./client
+      ports: ["80:80"]
+    mongodb:
+      image: mongo:6
+      volumes: [mongo_data:/data/db]
+
+Q53. [L3] What is CI/CD and how would you set it up for this project?
+--------------------------------------------------------------------
+ANSWER:
+CI/CD (Continuous Integration/Continuous Deployment) automates testing
+and deployment on every code push.
+
+GitHub Actions workflow (.github/workflows/deploy.yml):
+  on: push to main branch
+  jobs:
+    test:
+      - npm install (server + client)
+      - npm test (run Jest tests)
+      - npm run build (verify build succeeds)
+    deploy:
+      - if tests pass: SSH into server, git pull, npm install, pm2 restart
+      OR
+      - Push to Railway/Render which auto-deploys from GitHub
+
+Benefits:
+- Every push is automatically tested — broken code never reaches production
+- Deployment is one-click (or automatic)
+- Rollback is easy — just revert the commit
+
+================================================================================
+SECTION L: EDGE CASES & ERROR HANDLING
+================================================================================
+
+Q54. [L2] What happens if the user denies location permission?
+-------------------------------------------------------------
+ANSWER:
+In SOSContext.js, watchPosition's error callback:
+  (err) => setLocationError(err.message)
+This sets locationError state which is displayed in Dashboard.js:
+  {locationError && <p className="location-error">⚠️ {locationError}</p>}
+
+When SOS is triggered without location:
+  let location = currentLocation; // null if denied
+  if (!location) {
+    try { location = await getLocation(); }
+    catch { location = { lat: 0, lng: 0 }; } // Fallback to 0,0
+  }
+The SOS still fires — contacts are alerted even without location.
+The Google Maps link would point to 0,0 (ocean near Africa) which is
+obviously wrong, but the alert IS sent. This is the right trade-off —
+an alert without location is better than no alert.
+
+Improvement: Show a prominent warning "Location unavailable — SOS will
+fire without location data" before the user triggers SOS.
+
+Q55. [L3] What happens if the server is down when SOS is triggered?
+------------------------------------------------------------------
+ANSWER:
+In SOSContext.js triggerSOS(), the API call is wrapped in try/catch:
+  try {
+    const res = await api.post('/sos/trigger', ...);
+    // success path
+  } catch (networkErr) {
+    // Offline fallback
+    if ('serviceWorker' in navigator && 'SyncManager' in window) {
+      const db = await openOfflineDB();
+      await dbAdd(db, 'pending-sos', { token, data });
+      const sw = await navigator.serviceWorker.ready;
+      await sw.sync.register('sos-retry');
+    }
+    setSosActive(true);
+    setSosId('offline');
+    startLocationWatch();
+    return { offline: true };
+  }
+
+The UI shows SOS as active (red pulsing button) even when offline.
+The alert is queued in IndexedDB. When the server comes back online,
+the service worker retries the POST automatically.
+
+EmailJS (browser-side) fires independently of the server — so even if
+the backend is completely down, the email alert can still be sent via
+EmailJS directly from the browser.
+
+Q56. [L3] What happens if the user closes the browser during an active SOS?
+--------------------------------------------------------------------------
+ANSWER:
+This is a known limitation of web apps vs native apps.
+
+What happens:
+1. Socket.IO connection drops → server emits 'disconnect' event
+2. Location update interval stops (clearInterval on unmount)
+3. SOS event remains 'active' in MongoDB (or demoStore)
+
+When user reopens the app:
+1. AuthContext restores JWT from localStorage
+2. SOSContext checks GET /api/sos/active on mount
+3. If active SOS found: setSosActive(true), setSosId(sos._id)
+4. Location watching resumes
+5. User sees SOS is still active
+
+The gap in location updates (while browser was closed) is recorded in
+locationHistory with timestamps — contacts can see the last known location.
+
+Improvement: Push Notifications via Web Push API would allow the server
+to notify the user's device even when the browser is closed.
+
+Q57. [L4] How do you prevent the journey overdue checker from sending duplicate alerts?
+--------------------------------------------------------------------------------------
+ANSWER:
+The Journey model has: alertSent: { type: Boolean, default: false }
+
+The overdue checker query explicitly filters:
+  Journey.find({
+    status: 'active',
+    expectedArrival: { $lt: now },
+    alertSent: false  // ← Only journeys that haven't been alerted yet
+  })
+
+After sending alerts:
+  journey.alertSent = true;
+  journey.status = 'overdue';
+  await journey.save();
+
+Even if the checker runs 100 times while a journey is overdue, contacts
+only receive ONE alert. The second run finds alertSent: true and skips it.
+
+This is a simple but critical deduplication mechanism. Without it, contacts
+would receive an alert every 5 minutes — which would be alarming and
+counterproductive (they'd start ignoring alerts).
+
+
+================================================================================
+SECTION M: CSS & UI/UX
+================================================================================
+
+Q58. [L1] What are CSS variables and how did you use them for theming?
+---------------------------------------------------------------------
+ANSWER:
+CSS custom properties (variables) are defined with -- prefix and accessed
+with var(). In index.css:
+  :root {
+    --primary: #c2185b;
+    --bg: #fff5f8;
+    --surface: #ffffff;
+    --border: #f8bbd0;
+  }
+  [data-theme="dark"] {
+    --bg: #1a0a10;
+    --surface: #2d1020;
+  }
+
+Every component uses these variables:
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--primary);
+
+Dark mode toggle in App.js:
+  document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light')
+
+This single line switches the entire app's theme — all CSS variables
+cascade down from :root. No JavaScript theme switching needed per component.
+
+Q59. [L2] What is mobile-first design and how did you implement it?
+------------------------------------------------------------------
+ANSWER:
+Mobile-first means designing for small screens first, then adding styles
+for larger screens with media queries.
+
+In this project:
+- Default styles target mobile (320px-768px)
+- Sidebar is hidden by default (left: -280px), shown on menu button tap
+- SOS button is 180px — large enough for stressed finger taps
+- Font sizes use rem units — scale with user's browser font preference
+- max-width: 900px on main content — readable on desktop without stretching
+
+Media query for desktop (in Layout.css):
+  @media (min-width: 768px) {
+    .sidebar { position: sticky; left: 0; } /* Always visible on desktop */
+    .menu-btn { display: none; } /* No hamburger needed */
+    .main-content { padding: 32px 24px; }
+  }
+
+This approach ensures the app works perfectly on mobile (primary use case
+for a safety app) while also being usable on desktop.
+
+Q60. [L2] Why did you choose a pink-purple color scheme?
+-------------------------------------------------------
+ANSWER:
+The color scheme was chosen deliberately for the target audience:
+- Primary: #c2185b (deep pink) — feminine, warm, associated with women's
+  empowerment movements (pink ribbon, etc.)
+- Accent: #7b1fa2 (purple) — dignity, strength, safety
+- Background: #fff5f8 (soft rose) — gentle, non-threatening
+- SOS button: Red (#dc2626) — universally understood as danger/emergency
+
+High contrast ratios were maintained for accessibility:
+- White text on pink/red buttons passes WCAG AA contrast ratio (4.5:1)
+- Dark text on light backgrounds for readability
+
+The gradient (pink → purple) matches the Surakshita logo which uses the
+same purple-dominant palette.
+
+================================================================================
+SECTION N: GIT & VERSION CONTROL
+================================================================================
+
+Q61. [L1] What is Git and why is it used?
+----------------------------------------
+ANSWER:
+Git is a distributed version control system that tracks changes to code
+over time. Benefits:
+1. History: Every change is recorded with who made it and why (commit message)
+2. Branching: Work on features without affecting the main codebase
+3. Collaboration: Multiple developers can work simultaneously
+4. Rollback: Revert to any previous state if something breaks
+5. Backup: Code is stored on GitHub — not lost if local machine fails
+
+In this project:
+  git init — initialized repository
+  git add . — staged all files
+  git commit -m "feat: complete Surakshita..." — saved snapshot
+  git push origin main --force — pushed to GitHub, replacing existing code
+
+Q62. [L2] What is .gitignore and what did you exclude?
+-----------------------------------------------------
+ANSWER:
+.gitignore tells Git which files/folders to NOT track. In this project:
+  node_modules/ — 100MB+ of dependencies (reinstalled via npm install)
+  server/.env — contains passwords and API keys (NEVER commit secrets)
+  client/.env — contains EmailJS keys
+  client/build/ — generated files (recreated via npm run build)
+  *.log — log files (not useful in version control)
+
+Why not commit node_modules:
+- It's huge (often 100-500MB)
+- It's reproducible from package.json via npm install
+- Different OS may need different binary packages
+
+Why not commit .env:
+- Contains real passwords (JWT_SECRET, EMAIL_PASS, Twilio credentials)
+- If committed, anyone with repo access can steal credentials
+- .env.example is committed instead — shows what variables are needed
+  without exposing actual values
+
+================================================================================
+SECTION O: BEHAVIORAL & SOFT SKILLS
+================================================================================
+
+Q63. [L1] Walk me through what happens when a user presses the SOS button.
+--------------------------------------------------------------------------
+ANSWER: (This tests your ability to explain technical flow clearly)
+1. User holds the SOS button on the Dashboard
+2. A 3-second countdown appears (3... 2... 1...)
+3. If not cancelled, triggerSOS('button') is called from SOSContext
+4. The app gets the user's GPS coordinates from the browser
+5. An API call is made to POST /api/sos/trigger with the location
+6. The server looks up all emergency contacts for this user
+7. An email alert is sent to each contact with a Google Maps link
+8. The server responds with the SOS ID
+9. The SOS button turns red and pulses — showing SOS is active
+10. The app starts sending location updates every 10 seconds
+11. EmailJS also fires from the browser as a backup email channel
+12. The user can cancel by tapping the pulsing button
+
+Q64. [L2] What was the most difficult bug you encountered in this project?
+-------------------------------------------------------------------------
+ANSWER:
+The BSON CastError when saving contacts for the demo user. The error was:
+  "Cast to ObjectId failed for value 'demo_user_001'"
+This happened because MongoDB's ObjectId type cannot accept a plain string.
+The fix required changing userId from ObjectId to Mixed type in all models.
+But the real lesson was: the demo mode was designed as an afterthought.
+If we had designed for "no database" from the start, we would have used
+Mixed type from day one. This taught me to consider all deployment scenarios
+(no DB, no email, no SMS) during initial design, not as patches later.
+
+Q65. [L3] If you had to rebuild this project, what would you do differently?
+---------------------------------------------------------------------------
+ANSWER:
+1. TypeScript from the start — type safety would have caught the ObjectId/
+   string mismatch at compile time, not runtime
+2. Test-driven development — write tests before features, especially for
+   the SOS trigger flow which is safety-critical
+3. Design the offline/demo mode first — not as an afterthought
+4. Use a proper job queue (Bull + Redis) instead of setInterval for the
+   journey checker — more reliable and scalable
+5. Add React Error Boundaries — currently a component crash could take
+   down the entire app
+6. Use React.lazy() for code splitting — faster initial load
+7. Add proper logging (Winston/Morgan) — currently console.log only
+8. Implement refresh tokens — current JWT has no refresh mechanism
+9. Add WebRTC for live audio during SOS — more powerful than just location
+10. Use environment-specific configs (dev/staging/prod) not just one .env
+
+Q66. [L4] How would you add AI-based risk detection to this project?
+-------------------------------------------------------------------
+ANSWER:
+AI risk detection would analyze movement patterns to auto-trigger SOS:
+
+Data collection:
+- Continuously sample accelerometer data (DeviceMotion API)
+- Collect: acceleration magnitude, frequency of direction changes,
+  speed of movement (from GPS), time of day
+
+Features to detect:
+- Sudden fall: Large spike in acceleration followed by stillness
+- Running: High-frequency, high-magnitude acceleration
+- Abnormal route deviation: GPS coordinates diverging from expected path
+- Distress pattern: Erratic movement + stopped + no check-in
+
+Implementation options:
+1. TensorFlow.js (browser-side):
+   - Train a model on labeled movement data (normal/distress)
+   - Run inference in the browser — no server round-trip
+   - Model size: ~500KB for a simple LSTM
+
+2. Server-side ML:
+   - Stream accelerometer data to server via Socket.IO
+   - Python microservice with scikit-learn or PyTorch
+   - Classify movement patterns in real-time
+
+3. Rule-based (simpler, already partially implemented):
+   - Shake detection IS a form of risk detection
+   - Add: "no movement for 10 minutes after SOS" → escalate alert
+   - Add: "speed > 100km/h" → possible vehicle incident
+
+================================================================================
+QUICK FIRE ROUND — ONE-LINE ANSWERS
+================================================================================
+
+Q: What port does the backend run on?           A: 5000
+Q: What port does React dev server use?         A: 3000
+Q: What is the demo email?                      A: email123@gmail.com
+Q: What is the demo password?                   A: @Email1234
+Q: How long does a JWT last?                    A: 7 days
+Q: How many bcrypt salt rounds?                 A: 12
+Q: How often does journey checker run?          A: Every 5 minutes
+Q: How often are location updates sent?         A: Every 10 seconds during SOS
+Q: What map library is used?                    A: React-Leaflet (OpenStreetMap)
+Q: What is the SOS countdown?                   A: 3 seconds
+Q: What is the shake cooldown?                  A: 3000ms
+Q: What is the default shake threshold?         A: 25 (delta units)
+Q: What is the default voice keyword?           A: "help me"
+Q: What email service sends browser alerts?     A: EmailJS
+Q: What is the primary color?                   A: #c2185b (deep pink)
+Q: What is the accent color?                    A: #7b1fa2 (purple)
+Q: What database is used?                       A: MongoDB (optional)
+Q: What is the in-memory fallback called?       A: demoStore
+Q: What is the demo user's internal ID?         A: demo_user_001
+Q: What type is userId in Mongoose models?      A: Schema.Types.Mixed
+Q: What HTTP security library is used?          A: helmet
+Q: What handles real-time communication?        A: Socket.IO
+Q: What is the PWA cache name?                  A: surakshita-v1
+Q: What is the offline sync tag?                A: sos-retry
+Q: What 2FA library is used?                    A: speakeasy (TOTP)
+Q: What generates QR codes for 2FA?             A: qrcode npm package
+Q: What is the EmailJS service ID?              A: service_yxj8cve
+Q: What is the EmailJS template ID?             A: template_4hhznk2
+Q: What is the emergency contact phone?         A: +919125445682
+Q: What is the emergency contact email?         A: mailsfor.mrabhishek@gmail.com
+
+================================================================================
+END OF INTERVIEW QUESTIONS DOCUMENT
+Total Questions: 66 (covering L1 through L5 difficulty)
+Categories: Project Overview, React, JavaScript, Node.js, Auth/Security,
+            Database, Browser APIs, System Design, Performance, Testing,
+            Deployment, CSS/UI, Git, Behavioral
+================================================================================
