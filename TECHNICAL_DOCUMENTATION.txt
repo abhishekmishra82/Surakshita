@@ -1,0 +1,539 @@
+================================================================================
+        SURAKSHITA — TECHNICAL DOCUMENTATION & DEVELOPER ONBOARDING GUIDE
+        "One Step Towards Women's Safety"
+        Version: 1.0.0 | Stack: React + Node.js + Express + MongoDB (optional)
+================================================================================
+
+Welcome to the Surakshita codebase. This document is your complete onboarding
+guide. Read it top to bottom before touching any code.
+
+================================================================================
+SECTION 1: ARCHITECTURE OVERVIEW
+================================================================================
+
+Surakshita is a full-stack Progressive Web App (PWA) built on a classic
+client-server architecture with real-time capabilities layered on top.
+
+HIGH-LEVEL DIAGRAM:
+-------------------
+
+  [ Browser / Mobile ]
+         |
+         | HTTP REST (axios)
+         | WebSocket (socket.io-client)
+         |
+  [ Express Server — port 5000 ]
+         |          |
+         |          +---> Socket.IO (real-time location broadcast)
+         |          |
+         |          +---> Nodemailer (SMTP email via Gmail)
+         |          |
+         |          +---> Twilio SDK (SMS — optional, requires paid account)
+         |          |
+         |          +---> EmailJS (browser-side email — no backend needed)
+         |
+  [ MongoDB Atlas / Local ]
+         |
+         +---> Users, Contacts, SOSEvents, Journeys, Incidents collections
+
+KEY ARCHITECTURAL DECISIONS:
+-----------------------------
+
+1. DEMO MODE (No Database):
+   The app runs fully without MongoDB. A module called demoStore.js holds
+   all data in-memory for the demo user (demo_user_001). This means you can
+   demo every feature — SOS, contacts, journey, incidents — without any DB.
+   When MongoDB is connected, real users get persistent storage.
+
+2. DUAL EMAIL STRATEGY:
+   - Backend: Nodemailer via Gmail SMTP (server-side, requires app password)
+   - Frontend: EmailJS (browser-side, no backend credentials needed)
+   EmailJS is the primary working channel. Nodemailer is the fallback for
+   when a real DB + registered users are in use.
+
+3. REAL-TIME via Socket.IO:
+   During an active SOS, the client emits location updates every 10 seconds.
+   The server broadcasts these to all sockets in the user's "room" (userId).
+   Emergency contacts watching a live link would receive these updates.
+
+4. PWA + Offline Support:
+   A service worker caches static assets. If the network drops during SOS,
+   the alert is queued in IndexedDB and retried via Background Sync API
+   when connectivity restores.
+
+5. GUEST / AUTH FLOW:
+   The app opens without any login wall. Features are accessible to browse.
+   When a guest tries to USE a feature (SOS, contacts, etc.), a bottom-sheet
+   LoginPrompt slides up. This is a UX decision — reduce friction, maximize
+   adoption in emergencies.
+
+================================================================================
+SECTION 2: THE DATA PIPELINE
+================================================================================
+
+Let's trace a single SOS trigger from button tap to email delivery.
+
+STEP 1 — USER TAPS SOS BUTTON (client/src/components/SOSButton.js)
+   - User holds the button → 3-second countdown starts (prevents accidents)
+   - On countdown completion → calls triggerSOS('button') from SOSContext
+
+STEP 2 — LOCATION ACQUISITION (client/src/context/SOSContext.js)
+   - triggerSOS() first checks if currentLocation is already known
+   - If not, calls navigator.geolocation.getCurrentPosition()
+   - Returns { lat, lng } — raw GPS coordinates from the device
+
+STEP 3 — API CALL TO BACKEND (client/src/services/api.js)
+   - axios.post('/api/sos/trigger', { lat, lng, triggeredBy: 'button' })
+   - JWT token is auto-attached via axios request interceptor
+   - Timeout: 10 seconds
+
+STEP 4 — SERVER RECEIVES REQUEST (server/src/routes/sos.js)
+   - Route: POST /api/sos/trigger
+   - Passes through protect() middleware (JWT verification)
+   - JWT decoded → user._id extracted → req.user populated
+
+STEP 5 — DEMO CHECK (server/src/controllers/sosController.js)
+   - isDemo(req.user._id) checks if _id === 'demo_user_001'
+   - If demo: uses demoStore.sos.create() — pure in-memory, no DB write
+   - If real user: creates SOSEvent document in MongoDB
+
+STEP 6 — CONTACT LOOKUP
+   - Demo: demoContacts.findAll('demo_user_001') → returns pre-seeded contact
+     { name: 'Emergency Contact', phone: '+919125445682',
+       email: 'mailsfor.mrabhishek@gmail.com' }
+   - Real: Contact.find({ userId }) → MongoDB query
+
+STEP 7 — ALERT DISPATCH (server/src/services/emailService.js)
+   - buildSOSEmailHTML(userName, lat, lng, timestamp) generates HTML email
+   - Google Maps link: https://maps.google.com/?q={lat},{lng}
+   - sendEmail() calls nodemailer transporter.sendMail()
+   - This runs async (non-blocking) — response is sent to client immediately
+     without waiting for email delivery
+
+STEP 8 — SOCKET BROADCAST (server/src/index.js)
+   - io.to(userId).emit('sos-active', { sosId, location, timestamp })
+   - Any other connected client in that room receives this event
+
+STEP 9 — RESPONSE TO CLIENT
+   - { message: 'SOS triggered', sosId, contactsAlerted: 1 }
+   - Client sets sosActive = true, sosId = returned ID
+
+STEP 10 — BROWSER-SIDE EMAIL (client/src/services/emailAlert.js)
+   - Separately, SOSContext fetches contacts via GET /api/contacts
+   - For each contact with email: sendSOSEmail() via EmailJS
+   - EmailJS sends from 2k23.cs2313883@gmail.com to contact's email
+   - Template variables: to_email, to_name, from_name, maps_link, timestamp
+
+STEP 11 — CONTINUOUS LOCATION UPDATES
+   - setInterval fires every 10 seconds
+   - POST /api/sos/{sosId}/location with new lat/lng
+   - Server updates SOSEvent.locationHistory array
+   - Socket emits 'location-update' to room
+
+DATA TRANSFORMATIONS SUMMARY:
+   Raw GPS coords → Google Maps URL → HTML email body → SMTP packet → Inbox
+
+================================================================================
+SECTION 3: CORE LOGIC & ALGORITHMS
+================================================================================
+
+3.1 SHAKE DETECTION (client/src/hooks/useShakeDetection.js)
+------------------------------------------------------------
+Algorithm: Accelerometer Delta Threshold
+
+  delta = |x - prevX| + |y - prevY| + |z - prevZ|
+  if (delta > threshold && timeSinceLastShake > 3000ms) → trigger SOS
+
+- Uses DeviceMotion API (accelerationIncludingGravity)
+- Default threshold: 25 (configurable per user in Settings)
+- 3-second cooldown prevents multiple triggers from one shake
+- iOS 13+ requires explicit DeviceMotionEvent.requestPermission() call
+- Disabled for guest users and during active SOS
+
+3.2 VOICE ACTIVATION (client/src/hooks/useVoiceActivation.js)
+--------------------------------------------------------------
+Algorithm: Continuous Speech Recognition + Keyword Match
+
+- Uses Web Speech API (SpeechRecognition)
+- Runs in continuous mode — always listening when enabled
+- On each result: transcript.toLowerCase().includes(keyword)
+- Default keyword: "help me" (configurable in Settings)
+- Auto-restarts on recognition end (keeps listening)
+- Stops cleanly on component unmount
+
+3.3 JWT AUTHENTICATION (server/src/middleware/auth.js)
+------------------------------------------------------
+- Extracts Bearer token from Authorization header
+- Verifies with JWT_SECRET (falls back to 'surakshita_dev_secret' if not set)
+- Special case: if decoded.id === 'demo_user_001' → injects mock user object
+  directly without any DB query (critical for no-DB demo mode)
+- All protected routes use this middleware
+
+3.4 DEMO STORE (server/src/utils/demoStore.js)
+----------------------------------------------
+- Pure in-memory JavaScript arrays
+- Pre-seeded with one emergency contact on server start
+- Provides CRUD operations mirroring MongoDB patterns
+- isDemo(userId) is the gate — every controller checks this first
+- Data resets on server restart (intentional for demo)
+
+3.5 JOURNEY OVERDUE CHECKER (server/src/controllers/journeyController.js)
+-------------------------------------------------------------------------
+- Runs every 5 minutes via setInterval in server/src/index.js
+- Queries: Journey.find({ status:'active', expectedArrival: { $lt: now }, alertSent: false })
+- For each overdue journey: sends SMS to all contacts
+- Sets journey.alertSent = true to prevent duplicate alerts
+- Skips entirely if MongoDB is not connected (readyState !== 1)
+
+3.6 OFFLINE SOS QUEUE (client/src/context/SOSContext.js + public/service-worker.js)
+------------------------------------------------------------------------------------
+- If API call fails (network error): stores { token, data } in IndexedDB
+- Registers a Background Sync tag 'sos-retry'
+- Service worker listens for 'sync' event → retries the POST when online
+- UI still shows SOS as active (sosId = 'offline') so user knows it's queued
+
+3.7 ANONYMOUS / GUEST MODE (client/src/context/AuthContext.js)
+--------------------------------------------------------------
+- loginAnonymous() creates a local user object with a random _id
+- Stored in localStorage under key 'surakshita_anon_user'
+- No API call, no backend, works 100% offline
+- On app load: checks localStorage for anon session before checking JWT
+- Anon users skip Socket.IO connection (no room to join)
+- All feature actions check !user → show LoginPrompt instead
+
+================================================================================
+SECTION 4: FILE STRUCTURE & PURPOSE
+================================================================================
+
+SURAKSHITA/
+│
+├── .gitignore                    Excludes node_modules, .env, build/ from git
+├── .gitignore                    Root-level ignore rules
+├── package.json                  Root package (minimal, workspace marker)
+├── README.md                     Setup instructions and API documentation
+├── TECHNICAL_DOCUMENTATION.txt  This file — full developer onboarding guide
+│
+├── client/                       React PWA frontend
+│   ├── package.json              Frontend dependencies (React, Leaflet, EmailJS, etc.)
+│   ├── .env                      Frontend env vars (API URL, EmailJS keys)
+│   ├── .env.example              Template for env vars (safe to commit)
+│   │
+│   ├── public/
+│   │   ├── index.html            HTML shell — sets viewport, loads Leaflet CSS
+│   │   ├── manifest.json         PWA manifest — app name, icons, theme color
+│   │   └── service-worker.js     PWA service worker — caching + offline SOS queue
+│   │
+│   ├── build/                    Production build output (generated by npm run build)
+│   │
+│   └── src/
+│       ├── index.js              App entry — renders React root, inits EmailJS, registers SW
+│       ├── index.css             Global CSS variables (pink theme), font imports, resets
+│       ├── App.js                Router setup — defines all routes, wraps providers
+│       ├── App.css               Loading spinner styles
+│       │
+│       ├── context/
+│       │   ├── AuthContext.js    Global auth state — login, logout, anonymous mode, JWT restore
+│       │   └── SOSContext.js     Global SOS state — trigger, cancel, location watch, socket
+│       │
+│       ├── hooks/
+│       │   ├── useShakeDetection.js   DeviceMotion API — detects phone shake → triggers SOS
+│       │   ├── useVoiceActivation.js  Web Speech API — listens for keyword → triggers SOS
+│       │   └── useAuthGuard.js        Utility hook — wraps actions with auth requirement check
+│       │
+│       ├── services/
+│       │   ├── api.js            Axios instance — base URL, JWT interceptor, 401 handler
+│       │   └── emailAlert.js     EmailJS browser-side email — sends SOS alert directly
+│       │
+│       ├── components/
+│       │   ├── Layout.js         App shell — header with logo, sidebar nav, SOS banner
+│       │   ├── Layout.css        Header gradient, sidebar styles, nav link active states
+│       │   ├── SOSButton.js      The big red button — countdown, active pulse, guest guard
+│       │   ├── SOSButton.css     Button animations, pulse rings, countdown ring styles
+│       │   ├── LiveMap.js        OpenStreetMap via React-Leaflet — shows current location
+│       │   ├── Toast.js          Global toast notification system (success/error/info)
+│       │   ├── Toast.css         Slide-in toast animation styles
+│       │   ├── LoginPrompt.js    Bottom-sheet modal — sign in / register / guest options
+│       │   └── LoginPrompt.css   Sheet slide-up animation, button styles
+│       │
+│       └── pages/
+│           ├── Login.js          Sign-in form — demo credentials box, 2FA support
+│           ├── Register.js       Registration form — email + OTP verification flow
+│           ├── Auth.css          Shared auth page styles — gradient background, card
+│           ├── Dashboard.js      Home screen — SOS button, map, feature grid, history
+│           ├── Dashboard.css     Dashboard layout, feature cards, toggle switches
+│           ├── Contacts.js       CRUD for emergency contacts — add/edit/delete modal
+│           ├── Contacts.css      Contact card styles, modal overlay
+│           ├── Journey.js        Safe journey tracker — start, check-in, complete
+│           ├── Journey.css       Journey card, status badges, action buttons
+│           ├── Incidents.js      Incident reporting — type, description, anonymous option
+│           ├── Incidents.css     Incident card, status badge styles
+│           ├── Settings.js       User preferences — safe word, shake sensitivity, 2FA, dark mode
+│           └── Settings.css      Settings section cards, toggle, range slider styles
+│
+└── server/                       Node.js + Express backend
+    ├── package.json              Backend dependencies (express, mongoose, twilio, etc.)
+    ├── .env                      Server secrets (JWT, DB URI, email credentials)
+    ├── .env.example              Template for env vars (safe to commit)
+    │
+    └── src/
+        ├── index.js              Server entry — Express app, Socket.IO, routes, cron job
+        │
+        ├── models/
+        │   ├── User.js           Mongoose schema — auth fields, settings, password hashing
+        │   ├── Contact.js        Schema — emergency contact with userId (Mixed type)
+        │   ├── SOSEvent.js       Schema — SOS record with location history, alert log
+        │   ├── Journey.js        Schema — journey with destination, ETA, check-in time
+        │   └── Incident.js       Schema — incident report with type, location, anonymous flag
+        │
+        ├── controllers/
+        │   ├── authController.js  Register, OTP verify, login, 2FA setup/verify, settings
+        │   ├── contactController.js CRUD contacts — demo store or MongoDB based on user type
+        │   ├── sosController.js   Trigger SOS, resolve, update location, history
+        │   ├── journeyController.js Start/check-in/complete journey + overdue background job
+        │   └── incidentController.js Create and list incident reports
+        │
+        ├── routes/
+        │   ├── auth.js           Maps HTTP verbs to auth controller methods
+        │   ├── contacts.js       All routes protected by auth middleware
+        │   ├── sos.js            SOS routes — all protected
+        │   ├── location.js       REST fallback for location update (Socket.IO is primary)
+        │   ├── journey.js        Journey routes — all protected
+        │   └── incident.js       Incident routes — all protected
+        │
+        ├── middleware/
+        │   └── auth.js           JWT verification — demo user bypass + MongoDB user lookup
+        │
+        ├── services/
+        │   ├── smsService.js     Twilio SMS — lazy init, graceful skip if not configured
+        │   └── emailService.js   Nodemailer SMTP — lazy init, port 465 SSL, config check
+        │
+        └── utils/
+            ├── db.js             MongoDB connection — warns if not configured, auto-seeds demo
+            ├── demoStore.js      In-memory store — pre-seeded contact, full CRUD for demo user
+            └── seed.js           Standalone script — creates demo account in MongoDB (npm run seed)
+
+================================================================================
+SECTION 5: DEPENDENCY MAP
+================================================================================
+
+FRONTEND (client/package.json)
+-------------------------------
+
+react / react-dom          Core UI library — component rendering, virtual DOM
+react-router-dom v6        Client-side routing — nested routes, Navigate, useNavigate
+axios                      HTTP client — cleaner than fetch, interceptors for JWT
+socket.io-client           WebSocket client — real-time location updates during SOS
+react-leaflet + leaflet    Interactive maps — OpenStreetMap tiles, no API key needed
+@emailjs/browser           Browser-side email — sends SOS alerts without backend SMTP
+react-scripts              CRA build toolchain — webpack, babel, dev server, PWA support
+workbox-*                  PWA service worker utilities — caching strategies
+
+BACKEND (server/package.json)
+------------------------------
+
+express                    HTTP server framework — routing, middleware pipeline
+mongoose                   MongoDB ODM — schema definition, validation, queries
+bcryptjs                   Password hashing — 12 salt rounds, async compare
+jsonwebtoken               JWT creation and verification — stateless auth
+dotenv                     Environment variable loading from .env file
+cors                       Cross-Origin Resource Sharing — allows React dev server
+helmet                     HTTP security headers — XSS, clickjacking protection
+express-rate-limit         Rate limiting — 100 req/15min global, 20 req/15min auth
+nodemailer                 SMTP email client — Gmail integration for SOS alerts
+twilio                     SMS API client — lazy initialized, skipped if unconfigured
+speakeasy                  TOTP 2FA — generates and verifies time-based OTP codes
+qrcode                     QR code generation — for 2FA setup screen
+socket.io                  WebSocket server — real-time bidirectional communication
+joi / express-validator    Input validation (available, used selectively)
+
+================================================================================
+SECTION 6: EXECUTION FLOW
+================================================================================
+
+BACKEND STARTUP (cd server && npm run dev)
+------------------------------------------
+
+1. nodemon watches src/ for changes, runs: node src/index.js
+2. dotenv loads server/.env into process.env
+3. Express app created, http.Server wraps it
+4. Socket.IO server attached to http.Server with CORS config
+5. app.set('io', io) — makes socket accessible in controllers
+6. connectDB() called:
+   - Checks MONGO_URI — if placeholder, logs warning and returns
+   - If valid URI: mongoose.connect() → on success, seedDemoAccount()
+   - seedDemoAccount() checks if email123@gmail.com exists → creates if not
+7. Middleware stack applied: helmet → cors → express.json → rate limiters
+8. Routes mounted: /api/auth, /api/contacts, /api/sos, etc.
+9. Socket.IO event handlers registered:
+   - 'join-room' → socket.join(userId)
+   - 'location-update' → broadcast to room
+   - 'sos-active' / 'sos-cancelled' → broadcast to room
+10. server.listen(5000) → "Surakshita server running on port 5000"
+11. setInterval(checkOverdueJourneys, 5 * 60 * 1000) → starts background job
+
+FRONTEND STARTUP (cd client && npm start)
+------------------------------------------
+
+1. react-scripts starts webpack dev server on port 3000
+2. index.js executes:
+   - emailjs.init(REACT_APP_EMAILJS_PUBLIC_KEY) — initializes EmailJS SDK
+   - ReactDOM.createRoot().render(<App />) — mounts React tree
+   - register() — registers service-worker.js with the browser
+3. App.js renders:
+   - BrowserRouter wraps everything
+   - AuthProvider mounts → useEffect checks localStorage:
+     a. Looks for 'surakshita_anon_user' key → restores anon session
+     b. Looks for 'token' key → calls GET /api/auth/me to restore JWT session
+     c. Sets loading = false when done
+4. AppRoutes renders based on current URL:
+   - '/' → SOSProvider wraps Layout → Dashboard renders
+   - SOSProvider: connects Socket.IO, starts geolocation watch
+5. Dashboard loads:
+   - If user logged in: fetches contacts, active journey, SOS history
+   - If guest: shows info banner, greyed-out SOS button
+
+PRODUCTION (cd server && npm start)
+------------------------------------
+Same as dev but without nodemon. Serve client/build/ statically by adding
+express.static middleware pointing to client/build/ (see README for snippet).
+
+================================================================================
+SECTION 7: HIDDEN GEMS & EDGE CASES
+================================================================================
+
+7.1 SOS BUTTON — ACCIDENTAL TRIGGER PREVENTION
+   The SOS button uses a 3-second countdown before firing. The user must
+   hold/tap and wait. A "Cancel" button appears during countdown. This is
+   critical UX — a panic tap shouldn't immediately alert everyone.
+
+7.2 DEMO USER BYPASS IN JWT MIDDLEWARE
+   The auth middleware has a hardcoded check:
+     if (decoded.id === 'demo_user_001') → inject mock user, skip DB
+   This means the demo account works even if MongoDB is completely down.
+   The mock user object even has a .toSafeObject() method and a no-op .save()
+   so controllers don't crash when they call user.save().
+
+7.3 TWILIO LAZY INITIALIZATION
+   The Twilio client is NOT created at module load time. It's created on
+   first use inside getClient(). This prevents the server from crashing on
+   startup when TWILIO_ACCOUNT_SID is a placeholder (which it is by default).
+   Same pattern used for Nodemailer transporter.
+
+7.4 EMAIL CONFIG VALIDATION
+   isEmailConfigured() checks:
+   - EMAIL_USER exists
+   - EMAIL_PASS exists
+   - EMAIL_PASS doesn't contain 'your_' or 'password_here'
+   - EMAIL_PASS length >= 16 (app passwords are always 16 chars)
+   This prevents sending attempts with placeholder values.
+
+7.5 SOS FIRES RESPONSE BEFORE EMAIL SENDS
+   In sosController.js, the alert dispatch (SMS + email) runs inside
+   Promise.all(...).then(async () => { sosEvent.alertsSent = ...; save() })
+   This is intentional — the HTTP response returns to the client immediately
+   (within ~100ms) without waiting for email delivery (which can take 2-5s).
+   The client sees "SOS triggered" instantly. Alerts are fire-and-forget.
+
+7.6 CONTACT userId IS Mixed TYPE
+   All Mongoose models use { type: mongoose.Schema.Types.Mixed } for userId
+   instead of ObjectId. This is because the demo user has a string ID
+   ('demo_user_001') which would fail ObjectId casting. Mixed accepts both.
+
+7.7 ANONYMOUS USER PERSISTENCE
+   Anonymous sessions survive page refresh. The anon user object is stored
+   in localStorage. On app load, AuthContext checks for it before checking
+   JWT. This means a guest can close the tab and come back without losing
+   their session — important for a safety app where re-login friction is bad.
+
+7.8 SOCKET.IO ROOM ISOLATION
+   Each user joins a room named after their userId (socket.join(userId)).
+   Location updates and SOS events are emitted to that specific room only.
+   This means multiple users' data never cross-contaminates, even on the
+   same server instance.
+
+7.9 JOURNEY OVERDUE — DUPLICATE ALERT PREVENTION
+   The Journey model has an alertSent boolean field. The overdue checker
+   sets this to true after sending alerts. The query filters:
+     { alertSent: false }
+   So even if the cron runs multiple times while a journey is overdue,
+   contacts only get ONE alert. Without this, they'd get spammed every 5 min.
+
+7.10 OFFLINE SOS — UI STAYS ACTIVE
+   If the network is down when SOS is triggered, the catch block still sets:
+     setSosActive(true); setSosId('offline');
+   The user sees the SOS as active (red pulsing button). The alert is queued.
+   When connectivity returns, the service worker retries the POST. The user
+   is never left thinking "did it work?" — the UI always confirms activation.
+
+7.11 VOICE ACTIVATION AUTO-RESTART
+   The SpeechRecognition 'onend' handler checks if the feature is still
+   enabled before restarting. This prevents a zombie listener that keeps
+   running after the user disables voice activation in settings.
+
+7.12 DARK MODE PERSISTENCE
+   Dark mode is stored in the user object (server-side for registered users,
+   localStorage for anon). On login, useEffect in App.js reads user.darkMode
+   and sets document.documentElement.setAttribute('data-theme', 'dark').
+   CSS variables in index.css handle the rest — no JS theme switching needed.
+
+================================================================================
+QUICK REFERENCE — KEY FILES TO KNOW
+================================================================================
+
+  If you're debugging SOS not sending    → server/src/controllers/sosController.js
+  If you're debugging email not working  → server/src/services/emailService.js
+                                           client/src/services/emailAlert.js
+  If you're debugging auth issues        → server/src/middleware/auth.js
+                                           client/src/context/AuthContext.js
+  If you're debugging demo mode          → server/src/utils/demoStore.js
+  If you're debugging location/map       → client/src/context/SOSContext.js
+                                           client/src/components/LiveMap.js
+  If you're debugging shake/voice        → client/src/hooks/useShakeDetection.js
+                                           client/src/hooks/useVoiceActivation.js
+  If you're adding a new feature         → add route → controller → wire in index.js
+  If you're changing the theme           → client/src/index.css (:root variables)
+
+================================================================================
+ENVIRONMENT VARIABLES REFERENCE
+================================================================================
+
+SERVER (server/.env)
+  PORT                  Server port (default: 5000)
+  MONGO_URI             MongoDB connection string (optional — app works without it)
+  JWT_SECRET            Secret for signing JWT tokens
+  JWT_EXPIRES_IN        Token expiry (default: 7d)
+  TWILIO_ACCOUNT_SID    Twilio SID (optional — SMS skipped if not set)
+  TWILIO_AUTH_TOKEN     Twilio auth token
+  TWILIO_PHONE_NUMBER   Twilio sender number
+  EMAIL_HOST            SMTP host (smtp.gmail.com)
+  EMAIL_PORT            SMTP port (465 for SSL)
+  EMAIL_USER            Gmail address (sender)
+  EMAIL_PASS            Gmail App Password (16 chars, no spaces)
+  CLIENT_URL            Frontend URL for CORS (http://localhost:3000)
+  OTP_EXPIRY            OTP validity in minutes (default: 10)
+
+CLIENT (client/.env)
+  REACT_APP_API_URL             Backend API base URL
+  REACT_APP_SOCKET_URL          Socket.IO server URL
+  REACT_APP_EMAILJS_SERVICE_ID  EmailJS service ID (service_yxj8cve)
+  REACT_APP_EMAILJS_TEMPLATE_ID EmailJS template ID (template_4hhznk2)
+  REACT_APP_EMAILJS_PUBLIC_KEY  EmailJS public key (3wCvG9UCUfzbe0y62)
+
+================================================================================
+DEMO ACCOUNT CREDENTIALS
+================================================================================
+
+  Email    : email123@gmail.com
+  Password : @Email1234
+
+  Pre-seeded Emergency Contact:
+  Name     : Emergency Contact
+  Phone    : +919125445682
+  Email    : mailsfor.mrabhishek@gmail.com
+  Alerts   : SMS + Email both enabled
+
+================================================================================
+END OF DOCUMENTATION
+Maintained by: Surakshita Dev Team
+Last Updated : March 2026
+================================================================================
